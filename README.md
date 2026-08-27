@@ -1,5 +1,7 @@
 # zoreal-oauth2-go
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/Bynn-Intelligence/zoreal-oauth2-go.svg)](https://pkg.go.dev/github.com/Bynn-Intelligence/zoreal-oauth2-go) [![Go Report Card](https://goreportcard.com/badge/github.com/Bynn-Intelligence/zoreal-oauth2-go)](https://goreportcard.com/report/github.com/Bynn-Intelligence/zoreal-oauth2-go) [![CI](https://img.shields.io/github/actions/workflow/status/Bynn-Intelligence/zoreal-oauth2-go/ci.yml?branch=main&label=CI)](https://github.com/Bynn-Intelligence/zoreal-oauth2-go/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
 Login with ZOREAL for Go backends: the relying-party half of the flow that
 [`@zoreal/oauth2-react`](https://github.com/Bynn-Intelligence/zoreal-oauth2-react)
 starts in the browser.
