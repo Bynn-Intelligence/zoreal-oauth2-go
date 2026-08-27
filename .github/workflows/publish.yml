@@ -1,0 +1,57 @@
+# Auto-release zoreal-oauth2-go on every push to main, the family pattern set
+# by zoreal-oauth2-react, adapted to how Go actually publishes: there is no
+# registry to upload to and no version file to bump — a module version IS a
+# git tag on a public repository. The workflow runs the checks, cuts the next
+# patch tag, creates the GitHub release, and asks the module proxy for the new
+# version so it is indexed before the first real consumer arrives.
+#
+# To ship without cutting a release (docs, CI tweaks), put [skip publish] in
+# the commit message.
+name: Release Go module
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: "!contains(github.event.head_commit.message, '[skip publish]')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - run: go vet ./...
+      - run: go test ./...
+
+      - id: bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          LATEST=$(git tag --list 'v*' --sort=-v:refname | head -1)
+          LATEST=${LATEST:-v0.1.0}
+          BASE=${LATEST#v}
+          NEW="${BASE%.*}.$(( ${BASE##*.} + 1 ))"
+          git tag "v${NEW}"
+          git push origin "v${NEW}"
+          echo "version=${NEW}" >> "$GITHUB_OUTPUT"
+
+      - run: gh release create "v${{ steps.bump.outputs.version }}" --title "v${{ steps.bump.outputs.version }}" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # Warm the module proxy so `go get` resolves the tag immediately. The
+      # exclamation marks are the proxy's escaping for the capital letters in
+      # Bynn-Intelligence.
+      - run: curl -sf "https://proxy.golang.org/github.com/!bynn-!intelligence/zoreal-oauth2-go/@v/v${{ steps.bump.outputs.version }}.info" || true
