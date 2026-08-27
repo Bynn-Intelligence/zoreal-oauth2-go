@@ -34,6 +34,21 @@ func (l *Login) Sub() string { return l.claimString("sub") }
 // zoreal.session. It describes what happened, never what was requested.
 func (l *Login) ACR() string { return l.claimString("acr") }
 
+// Live reports whether a fresh liveness capture backed this login — the
+// convenience spelling of ACR() == ACRLive. For enforcement, pass
+// WithRequiredACR to Authenticate and let verification refuse the token
+// instead of checking after the fact.
+func (l *Login) Live() bool { return l.ACR() == ACRLive }
+
+// SatisfiesACR reports whether this login's assurance is required or
+// stronger, on the vocabulary's ordering (ACRSession < ACRDevice < ACRLive).
+// A value outside the vocabulary, on either side, satisfies nothing.
+func (l *Login) SatisfiesACR(required string) bool {
+	actual, actualKnown := acrOrder[l.ACR()]
+	wanted, wantedKnown := acrOrder[required]
+	return actualKnown && wantedKnown && actual >= wanted
+}
+
 // AMR is the authentication methods reference, as the provider sent it.
 func (l *Login) AMR() []string {
 	raw, _ := l.Claims["amr"].([]any)

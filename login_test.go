@@ -182,3 +182,32 @@ func TestLoginReadsTheIDTokenClaims(t *testing.T) {
 		t.Fatalf("Nationality = %q", login.Nationality())
 	}
 }
+
+func TestLoginACRConveniences(t *testing.T) {
+	live := &Login{Claims: map[string]any{"acr": "zoreal.live"}}
+	if !live.Live() {
+		t.Fatal("Live() = false for acr zoreal.live")
+	}
+	if !live.SatisfiesACR(ACRDevice) || !live.SatisfiesACR(ACRLive) {
+		t.Fatal("a live login must satisfy device and live")
+	}
+	if live.SatisfiesACR("made.up") {
+		t.Fatal("an unknown required value must satisfy nothing")
+	}
+
+	device := &Login{Claims: map[string]any{"acr": "zoreal.device"}}
+	if device.Live() {
+		t.Fatal("Live() = true for acr zoreal.device")
+	}
+	if device.SatisfiesACR(ACRLive) {
+		t.Fatal("a device login must not satisfy live")
+	}
+	if !device.SatisfiesACR(ACRSession) {
+		t.Fatal("a device login must satisfy session")
+	}
+
+	unknown := &Login{Claims: map[string]any{"acr": "made.up"}}
+	if unknown.SatisfiesACR(ACRSession) {
+		t.Fatal("an acr outside the vocabulary must satisfy nothing")
+	}
+}

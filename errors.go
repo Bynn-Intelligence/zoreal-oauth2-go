@@ -5,8 +5,10 @@ import (
 	"strings"
 )
 
-// ErrConfiguration is wrapped by every error NewClient returns for a client
-// built without something it cannot work without. Test for it with
+// ErrConfiguration is wrapped by every error this package returns for a
+// mistake in YOUR code rather than in a token: a client built without
+// something it cannot work without, or a WithRequiredACR value outside the
+// assurance vocabulary. Test for it with
 // errors.Is(err, zorealoauth2.ErrConfiguration).
 var ErrConfiguration = errors.New("zorealoauth2: configuration error")
 
@@ -44,9 +46,10 @@ func (e *ExchangeError) Unwrap() error { return e.cause }
 
 // VerificationError is returned when the ID token did not verify: bad
 // signature, wrong issuer or audience, expired, an algorithm that is not
-// ES256, a key the provider JWKS does not hold, or a nonce that was not the
-// one this login started with. A JWKS that could not be fetched surfaces here
-// too, because a token that cannot be checked is a token that did not verify.
+// ES256, a key the provider JWKS does not hold, a nonce that was not the one
+// this login started with, or an acr below the assurance floor the caller
+// required. A JWKS that could not be fetched surfaces here too, because a
+// token that cannot be checked is a token that did not verify.
 type VerificationError struct {
 	Reason string
 	cause  error

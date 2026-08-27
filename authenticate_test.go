@@ -49,6 +49,24 @@ func TestAuthenticateRefusesANonceMismatch(t *testing.T) {
 	assertVerificationError(t, err)
 }
 
+func TestAuthenticateEnforcesTheRequiredACR(t *testing.T) {
+	p := newProvider(t)
+	c := p.client(t)
+	p.serveTokenSuccess(p.sign(p.baseClaims(map[string]any{"acr": "zoreal.device"})), "at-1", "openid")
+
+	_, err := c.Authenticate(context.Background(), "code-1", "verifier-1", "n-1", WithRequiredACR(ACRLive))
+	assertVerificationError(t, err)
+
+	p.serveTokenSuccess(p.sign(p.baseClaims(map[string]any{"acr": "zoreal.live"})), "at-1", "openid")
+	login, err := c.Authenticate(context.Background(), "code-1", "verifier-1", "n-1", WithRequiredACR(ACRLive))
+	if err != nil {
+		t.Fatalf("Authenticate with a live token: %v", err)
+	}
+	if !login.Live() {
+		t.Fatal("Live() = false for a zoreal.live login")
+	}
+}
+
 func TestAuthenticateSurfacesTheExchangeRefusal(t *testing.T) {
 	p := newProvider(t)
 	c := p.client(t)

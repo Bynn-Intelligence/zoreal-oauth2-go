@@ -47,6 +47,19 @@ const (
 	authTLSClientAuth
 )
 
+// The assurance vocabulary the acr claim speaks, weakest to strongest.
+// Verification accepts equal or stronger: a relying party requiring
+// ACRDevice is satisfied by a zoreal.live token, never the reverse.
+const (
+	ACRSession = "zoreal.session"
+	ACRDevice  = "zoreal.device"
+	ACRLive    = "zoreal.live"
+)
+
+// acrOrder ranks the vocabulary. A value outside it has no rank and
+// satisfies nothing.
+var acrOrder = map[string]int{ACRSession: 0, ACRDevice: 1, ACRLive: 2}
+
 // Config configures a Client. ClientID is required; everything else has a
 // default or is one of the four client authentication postures:
 //
@@ -260,15 +273,16 @@ type TokenResponse struct {
 // verifier the browser SDK handed over), verify the ID token against the
 // JWKS, check the nonce when the caller has one (pass "" when it does not,
 // and know that without the nonce the backend cannot tell a substituted ID
-// token from the real one). Returns a Login; personal data is NOT fetched
-// here, because the ID token never carries it and not every caller wants it —
-// Login.Userinfo fetches on first use.
-func (c *Client) Authenticate(ctx context.Context, code, codeVerifier, nonce string) (*Login, error) {
+// token from the real one), and — when the caller passes WithRequiredACR —
+// refuse a token whose assurance is below it. Returns a Login; personal data
+// is NOT fetched here, because the ID token never carries it and not every
+// caller wants it — Login.Userinfo fetches on first use.
+func (c *Client) Authenticate(ctx context.Context, code, codeVerifier, nonce string, opts ...VerifyOption) (*Login, error) {
 	tokens, err := c.Exchange(ctx, code, codeVerifier)
 	if err != nil {
 		return nil, err
 	}
-	claims, err := c.VerifyIDToken(ctx, tokens.IDToken, nonce)
+	claims, err := c.VerifyIDToken(ctx, tokens.IDToken, nonce, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -365,14 +379,60 @@ func (c *Client) Exchange(ctx context.Context, code, codeVerifier string) (*Toke
 	return &tokens, nil
 }
 
+// VerifyOption tightens what Authenticate and VerifyIDToken require of the
+// ID token beyond the always-on checks.
+type VerifyOption func(*verifyConfig)
+
+type verifyConfig struct {
+	requiredACR string
+}
+
+// WithRequiredACR sets the assurance floor: the token's acr claim must be
+// the required value or a stronger one (ACRSession < ACRDevice < ACRLive),
+// or verification refuses the token with a *VerificationError. A required
+// value outside the vocabulary is a typo in YOUR code, not a bad token, and
+// wraps ErrConfiguration instead of failing every login.
+//
+// REQUESTING an assurance on the wire (the browser SDK's acr_values) is
+// advisory; the signed acr claim is the proof, and this option is where a
+// relying party that asked for a liveness check verifies it actually
+// happened. An RP that requires zoreal.live and never passes this option has
+// checked nothing.
+func WithRequiredACR(required string) VerifyOption {
+	return func(v *verifyConfig) { v.requiredACR = required }
+}
+
+// verifyACR: equal or stronger satisfies; anything else — weaker, missing,
+// or a value outside the vocabulary — is refused. An unknown REQUIREMENT is
+// a caller bug and says so plainly rather than failing every login.
+func verifyACR(claims map[string]any, required string) error {
+	requiredRank, known := acrOrder[required]
+	if !known {
+		return fmt.Errorf("%w: unknown required acr %q; supported: %s, %s, %s",
+			ErrConfiguration, required, ACRSession, ACRDevice, ACRLive)
+	}
+	actual, _ := claims["acr"].(string)
+	if actualRank, ok := acrOrder[actual]; ok && actualRank >= requiredRank {
+		return nil
+	}
+	return &VerificationError{
+		Reason: fmt.Sprintf("the ID token says acr %q, below the required %s", actual, required),
+	}
+}
+
 // VerifyIDToken checks the compact JWT against the provider JWKS: ES256
 // signature, exact iss, aud == client_id, exp — and, when the caller passes
-// the nonce the SDK generated, the nonce binding. Returns the claims. There
-// is no RS256 fallback on purpose: ZOREAL signs ID tokens with nothing else,
-// and accepting a second algorithm is how algorithm confusion starts.
-func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (map[string]any, error) {
+// the nonce the SDK generated, the nonce binding, and, with WithRequiredACR,
+// the assurance floor. Returns the claims. There is no RS256 fallback on
+// purpose: ZOREAL signs ID tokens with nothing else, and accepting a second
+// algorithm is how algorithm confusion starts.
+func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string, opts ...VerifyOption) (map[string]any, error) {
 	if strings.TrimSpace(idToken) == "" {
 		return nil, &VerificationError{Reason: "no ID token was given"}
+	}
+	var vc verifyConfig
+	for _, opt := range opts {
+		opt(&vc)
 	}
 
 	parser := jwt.NewParser(
@@ -398,6 +458,11 @@ func (c *Client) VerifyIDToken(ctx context.Context, idToken, nonce string) (map[
 		got, _ := claims["nonce"].(string)
 		if got != nonce {
 			return nil, &VerificationError{Reason: "the ID token nonce is not the one this login started with"}
+		}
+	}
+	if vc.requiredACR != "" {
+		if err := verifyACR(claims, vc.requiredACR); err != nil {
+			return nil, err
 		}
 	}
 	return map[string]any(claims), nil

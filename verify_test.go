@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -155,6 +156,78 @@ func TestJWKSIsCachedBetweenVerifications(t *testing.T) {
 	}
 	if got := p.fetchCount(); got != 1 {
 		t.Fatalf("jwks fetches = %d, want 1", got)
+	}
+}
+
+func TestEqualACRSatisfies(t *testing.T) {
+	p := newProvider(t)
+	c := p.client(t)
+
+	token := p.sign(p.baseClaims(map[string]any{"acr": "zoreal.live"}))
+	if _, err := c.VerifyIDToken(context.Background(), token, "", WithRequiredACR("zoreal.live")); err != nil {
+		t.Fatalf("VerifyIDToken: %v", err)
+	}
+}
+
+func TestStrongerACRSatisfies(t *testing.T) {
+	p := newProvider(t)
+	c := p.client(t)
+
+	token := p.sign(p.baseClaims(map[string]any{"acr": "zoreal.live"}))
+	if _, err := c.VerifyIDToken(context.Background(), token, "", WithRequiredACR("zoreal.device")); err != nil {
+		t.Fatalf("VerifyIDToken: %v", err)
+	}
+}
+
+func TestWeakerACRIsRefused(t *testing.T) {
+	p := newProvider(t)
+	c := p.client(t)
+
+	token := p.sign(p.baseClaims(map[string]any{"acr": "zoreal.device"}))
+	_, err := c.VerifyIDToken(context.Background(), token, "", WithRequiredACR("zoreal.live"))
+	assertVerificationError(t, err)
+	// The refusal names both values — and never the token itself.
+	if !strings.Contains(err.Error(), "zoreal.device") || !strings.Contains(err.Error(), "zoreal.live") {
+		t.Fatalf("the refusal does not name both acr values: %v", err)
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Fatalf("the refusal leaks the token: %v", err)
+	}
+}
+
+func TestMissingACRIsRefusedWhenRequired(t *testing.T) {
+	p := newProvider(t)
+	c := p.client(t)
+
+	claims := p.baseClaims(nil)
+	delete(claims, "acr")
+	_, err := c.VerifyIDToken(context.Background(), p.sign(claims), "", WithRequiredACR("zoreal.session"))
+	assertVerificationError(t, err)
+}
+
+func TestUnknownRequiredACRIsACallerBug(t *testing.T) {
+	p := newProvider(t)
+	c := p.client(t)
+
+	token := p.sign(p.baseClaims(map[string]any{"acr": "zoreal.live"}))
+	_, err := c.VerifyIDToken(context.Background(), token, "", WithRequiredACR("zoreal.liveness"))
+	if !errors.Is(err, ErrConfiguration) {
+		t.Fatalf("expected ErrConfiguration, got %T: %v", err, err)
+	}
+	var verr *VerificationError
+	if errors.As(err, &verr) {
+		t.Fatalf("a typo in the requirement must not read as a bad token: %v", err)
+	}
+}
+
+func TestNoRequiredACRChecksNothing(t *testing.T) {
+	p := newProvider(t)
+	c := p.client(t)
+
+	claims := p.baseClaims(nil)
+	delete(claims, "acr")
+	if _, err := c.VerifyIDToken(context.Background(), p.sign(claims), ""); err != nil {
+		t.Fatalf("VerifyIDToken without a requirement: %v", err)
 	}
 }
 
