@@ -134,8 +134,7 @@ Set exactly one of these on `Config`; leaving all unset is the fourth method.
 
 ## Development against a local provider
 
-Point `Issuer` at your provider instance (for the Bynn stack:
-`https://rails.bynn.io/id`). The issuer value must match the `iss` inside the
+Point `Issuer` at your provider instance. The issuer value must match the `iss` inside the
 tokens exactly — it is compared, not normalized.
 
 ## The ZOREAL OAuth2 library family
